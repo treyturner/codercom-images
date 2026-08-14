@@ -10,6 +10,8 @@ ARG UV_VERSION=0.11.32
 FROM ghcr.io/astral-sh/uv:${UV_VERSION} AS uv
 FROM ${BASE_REF}
 
+ARG TARGETARCH
+
 COPY --from=uv /uv /uvx /usr/local/bin/
 
 SHELL ["/bin/bash", "-euo", "pipefail", "-c"]
@@ -18,7 +20,8 @@ USER root
 
 RUN --mount=type=cache,target=/var/cache/apt,id=base-apt-cache,sharing=locked \
     --mount=type=cache,target=/var/lib/apt,id=base-apt-lib,sharing=locked \
-    apt-get update \
+    test "${TARGETARCH}" = "amd64" \
+    && apt-get update \
     && apt-get install -y --no-install-recommends \
       bubblewrap \
       cmake \
@@ -45,9 +48,13 @@ RUN --mount=type=cache,target=/var/cache/apt,id=base-apt-cache,sharing=locked \
       tmux \
       traceroute \
       tree \
-      yq \
       zip \
       zstd \
+    && wget "https://github.com/mikefarah/yq/releases/download/v4.53.3/yq_linux_amd64" \
+      -O /usr/local/bin/yq \
+    && echo "fa52a4e758c63d38299163fbdd1edfb4c4963247918bf9c1c5d31d84789eded4  /usr/local/bin/yq" \
+      | sha256sum -c - \
+    && chmod +x /usr/local/bin/yq \
     && extrepo enable mise \
     && apt-get remove -y --auto-remove extrepo \
     && apt-get update \
@@ -65,4 +72,5 @@ RUN mise use -g --pin "node@${CODER_NODE_VERSION}" \
     && npm --version \
     && npx --version \
     && uv --version \
-    && uvx --version
+    && uvx --version \
+    && yq --version
