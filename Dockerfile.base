@@ -1,0 +1,48 @@
+ARG BASE_REGISTRY=docker.io \
+    BASE_OWNER=codercom \
+    BASE_REPO=example-base \
+    BASE_TAG=ubuntu
+ARG BASE_REF=${BASE_REGISTRY}/${BASE_OWNER}/${BASE_REPO}:${BASE_TAG}
+
+FROM ${BASE_REF}
+
+SHELL ["/bin/bash", "-euo", "pipefail", "-c"]
+
+USER root
+
+RUN --mount=type=cache,target=/var/cache/apt,id=base-apt-cache,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,id=base-apt-lib,sharing=locked \
+    apt-get update \
+    && apt-get install -y --no-install-recommends \
+      bubblewrap \
+      dnsutils \
+      extrepo \
+      fd-find \
+      file \
+      fzf \
+      git-lfs \
+      iputils-ping \
+      lsof \
+      mtr-tiny \
+      nano \
+      net-tools \
+      netcat-openbsd \
+      p7zip-full \
+      ripgrep \
+      socat \
+      strace \
+      tcpdump \
+      tmux \
+      traceroute \
+      tree \
+      yq \
+      zip \
+      zstd \
+    && extrepo enable mise \
+    && apt-get remove -y --auto-remove extrepo \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends mise \
+    && ln -s /usr/bin/fdfind /usr/local/bin/fd
+
+# switch to runtime user
+USER coder
