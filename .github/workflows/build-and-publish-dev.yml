@@ -6,6 +6,7 @@ on:
     paths:
       - Dockerfile.base
       - Dockerfile.playwright
+      - '.github/actions/**'
       - '.github/workflows/**'
   workflow_dispatch:
     inputs:
@@ -13,6 +14,10 @@ on:
         description: "Playwright version override; defaults to latest"
         required: false
         type: string
+
+concurrency:
+  group: build-and-publish-dev
+  cancel-in-progress: false
 
 env:
   UPSTREAM_REF: "ubuntu"
@@ -52,12 +57,12 @@ jobs:
             playwright=true
           else
             if ! git diff --quiet "$BEFORE_SHA" "$AFTER_SHA" -- \
-              Dockerfile.base .github/workflows/; then
+              Dockerfile.base .github/actions/ .github/workflows/; then
               base=true
               playwright=true
             fi
             if ! git diff --quiet "$BEFORE_SHA" "$AFTER_SHA" -- \
-              Dockerfile.playwright .github/workflows/; then
+              Dockerfile.playwright .github/actions/ .github/workflows/; then
               playwright=true
             fi
           fi

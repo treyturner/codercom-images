@@ -2,10 +2,11 @@ name: Build and test PR
 
 on:
   pull_request:
-    types: ['opened', 'synchronize']
+    types: ['opened', 'synchronize', 'reopened']
     paths:
       - Dockerfile.base
       - Dockerfile.playwright
+      - '.github/actions/**'
       - '.github/workflows/**'
 
 env:
@@ -42,12 +43,12 @@ jobs:
             playwright=true
           else
             if ! git diff --quiet "$BASE_SHA" "$HEAD_SHA" -- \
-              Dockerfile.base .github/workflows/; then
+              Dockerfile.base .github/actions/ .github/workflows/; then
               base=true
               playwright=true
             fi
             if ! git diff --quiet "$BASE_SHA" "$HEAD_SHA" -- \
-              Dockerfile.playwright .github/workflows/; then
+              Dockerfile.playwright .github/actions/ .github/workflows/; then
               playwright=true
             fi
           fi
