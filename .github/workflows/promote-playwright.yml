@@ -1,0 +1,84 @@
+name: Promote Playwright dev tag
+
+on:
+  workflow_dispatch:
+    inputs:
+      playwright_version:
+        description: "Playwright GA version to promote (e.g. 1.62.1)"
+        required: true
+        type: string
+
+jobs:
+  promote-playwright:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    env:
+      #DOCKERHUB_OWNER: treyturner
+      IMAGE_NAME: codercom-playwright
+
+    steps:
+      - name: Validate Playwright version
+        id: tags
+        shell: bash -euo pipefail {0}
+        env:
+          REQUESTED_VERSION: ${{ inputs.playwright_version }}
+        run: |
+          version="${REQUESTED_VERSION#v}"
+          if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::Playwright version must match X.Y.Z (e.g. 1.62.1)"
+            exit 1
+          fi
+
+          echo "source=ubuntu-${version}-dev" >> "$GITHUB_OUTPUT"
+          echo "target=ubuntu-${version}" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c  # v4.2.0
+
+      # - name: DockerHub login
+      #   uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f  # v4.6.0
+      #   with:
+      #     username: ${{ vars.DOCKERHUB_USERNAME }}
+      #     password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Forgejo login
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f  # v4.6.0
+        with:
+          registry: forgejo.treyturner.info
+          username: ${{ github.repository_owner }}
+          password: ${{ secrets.FORGEJO_REGISTRY_TOKEN }}
+
+      - name: GitHub Container Registry login
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f  # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.repository_owner }}
+          password: ${{ github.token }}
+
+      - name: Promote versioned Playwright tag
+        shell: bash -euo pipefail {0}
+        env:
+          GH_OWNER: ${{ github.repository_owner }}
+          SOURCE_TAG: ${{ steps.tags.outputs.source }}
+          TARGET_TAG: ${{ steps.tags.outputs.target }}
+        run: |
+          owner_lower="$(printf '%s' "$GH_OWNER" | tr '[:upper:]' '[:lower:]')"
+          repositories=(
+            # "${DOCKERHUB_OWNER}/${IMAGE_NAME}"
+            "forgejo.treyturner.info/${owner_lower}/${IMAGE_NAME}"
+            "ghcr.io/${owner_lower}/${IMAGE_NAME}"
+          )
+
+          for repository in "${repositories[@]}"; do
+            echo "Validating ${repository}:${SOURCE_TAG}"
+            docker buildx imagetools inspect \
+              "${repository}:${SOURCE_TAG}" > /dev/null
+          done
+
+          for repository in "${repositories[@]}"; do
+            echo "Promoting ${repository}:${SOURCE_TAG} to ${TARGET_TAG}"
+            docker buildx imagetools create \
+              --tag "${repository}:${TARGET_TAG}" \
+              "${repository}:${SOURCE_TAG}"
+          done

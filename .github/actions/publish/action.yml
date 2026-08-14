@@ -1,0 +1,51 @@
+name: Push
+description: Push a Docker image to one or more registries
+
+inputs:
+  # dockerhub-username:
+  #   required: false
+  # dockerhub-password:
+  #   required: false
+  forgejo-registry-token:
+    required: false
+  github-token:
+    required: true
+  refs:
+    required: true
+
+runs:
+  using: composite
+  steps:
+    # - name: Login to DockerHub
+    #   if: ${{ contains(inputs.refs, 'docker.io') }}
+    #   uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f  # v4.6.0
+    #   with:
+    #     username: ${{ inputs.dockerhub-username }}
+    #     password: ${{ inputs.dockerhub-password }}
+
+    - name: Login to Forgejo
+      if: ${{ contains(inputs.refs, 'forgejo.treyturner.info') }}
+      uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f  # v4.6.0
+      with:
+        registry: forgejo.treyturner.info
+        username: ${{ github.repository_owner }}
+        password: ${{ inputs.forgejo-registry-token }}
+
+    - name: Login to GitHub Container Registry
+      if: ${{ contains(inputs.refs, 'ghcr.io') }}
+      uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f  # v4.6.0
+      with:
+        registry: ghcr.io
+        username: ${{ github.repository_owner }}
+        password: ${{ inputs.github-token }}
+
+    - name: Push
+      shell: bash -euo pipefail {0}
+      run: |
+        echo "Pushing images..."
+        while IFS= read -r ref; do
+          if [ -n "$ref" ]; then
+            echo "Pushing $ref"
+            docker push "$ref"
+          fi
+        done <<< "${{ inputs.refs }}"

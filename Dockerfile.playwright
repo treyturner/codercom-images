@@ -1,0 +1,36 @@
+# syntax=docker/dockerfile:1.7
+ARG BASE_REGISTRY=ghcr.io
+ARG BASE_OWNER=treyturner
+ARG BASE_REPO=codercom-base
+ARG BASE_TAG=ubuntu
+ARG BASE_REF=${BASE_REGISTRY}/${BASE_OWNER}/${BASE_REPO}:${BASE_TAG}
+
+FROM ${BASE_REF}
+
+ARG PLAYWRIGHT_VERSION
+
+ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright \
+    PLAYWRIGHT_SKIP_BROWSER_GC=1 \
+    PLAYWRIGHT_VERSION=${PLAYWRIGHT_VERSION}
+
+LABEL io.github.treyturner.playwright.version="${PLAYWRIGHT_VERSION}"
+
+USER root
+
+# Install only the browser and its system deps
+RUN --mount=type=cache,target=/root/.local/share/mise,id=pw-mise-data,sharing=locked \
+    --mount=type=cache,target=/root/.cache/mise,id=pw-mise-cache,sharing=locked \
+    --mount=type=cache,target=/root/.npm,id=pw-npm-cache,sharing=locked \
+    if [[ ! "$PLAYWRIGHT_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then \
+      echo "PLAYWRIGHT_VERSION must be provided as a GA version such as 1.62.1" >&2; \
+      exit 1; \
+    fi; \
+    mise x node@22 -- npx --yes "playwright@${PLAYWRIGHT_VERSION}" \
+      install --with-deps chromium \
+    && chown -R coder:coder "$PLAYWRIGHT_BROWSERS_PATH" \
+    && find "$PLAYWRIGHT_BROWSERS_PATH" -type f -name chrome -print -quit \
+      | tee /tmp/chrome_binary_path \
+    && test -s /tmp/chrome_binary_path
+
+# Switch to runtime user
+USER coder
