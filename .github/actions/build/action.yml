@@ -1,0 +1,107 @@
+name: Build
+description: Build a Dockerfile
+
+inputs:
+  dockerfile:
+    description: "Dockerfile to build"
+    required: true
+  build-args:
+    description: "Newline-separated Docker build arguments"
+    required: false
+  label:
+    description: "Optional build suffix, e.g. 'dev'"
+    required: false
+  repos:
+    description: "Newline-separated list of <registry>/<repository> used to build refs"
+    required: false
+  upstream-ref:
+    description: "Upstream ref to build"
+    required: true
+
+outputs:
+  repos:
+    description: "Newline-separated list of <registry>/<repository> used to build refs"
+    value: ${{ steps.compute.outputs.repos }}
+  tags:
+    description: "Newline-separated list of built tags"
+    value: ${{ steps.compute.outputs.tags }}
+  refs:
+    description: "Newline-separated list of fully-qualified built image refs (repository:tag)"
+    value: ${{ steps.compute.outputs.refs }}
+  primary-tag:
+    description: "Primary image tag (without repository)"
+    value: ${{ steps.compute.outputs.primary-tag }}
+  primary-ref:
+    description: "First fully-qualified image reference produced by this build"
+    value: ${{ steps.compute.outputs.primary-ref }}
+  imageid:
+    description: "Built image ID"
+    value: ${{ steps.build.outputs.imageid }}
+  digest:
+    description: "Built image digest"
+    value: ${{ steps.build.outputs.digest }}
+  metadata:
+    description: "Built image metadata"
+    value: ${{ steps.build.outputs.metadata }}
+
+runs:
+  using: composite
+  steps:
+    - name: Compute tags and refs
+      id: compute
+      shell: bash -euo pipefail {0}
+      env:
+        UPSTREAM_REF: ${{ inputs.upstream-ref }}
+        LABEL: ${{ inputs.label }}
+        REPOS: ${{ inputs.repos }}
+        REPOSITORY_NAME: ${{ github.repository }}
+      run: |
+        tags=()
+        base_tag="${UPSTREAM_REF}${LABEL:+-$LABEL}"
+        tags+=("${base_tag}")
+
+        mapfile -t repo_list < <(
+          printf '%s' "${REPOS:-}" \
+            | sed 's/\\r//g' \
+            | sed 's/\\n/\n/g' \
+            | sed '/^\s*$/d'
+        )
+
+        if ((${#repo_list[@]} == 0)); then
+          repo_list=("local/${REPOSITORY_NAME#*/}")
+        fi
+
+        refs=()
+        for repo in "${repo_list[@]:-}"; do
+          repo="$(printf '%s' "$repo" | xargs)"
+          [ -z "${repo}" ] && continue
+          for tag in "${tags[@]}"; do
+            refs+=("${repo}:${tag}")
+          done
+        done
+
+        primary_ref="${refs[0]}"
+
+        {
+          printf 'tags<<EOF\n%s\nEOF\n' "$(printf '%s\n' "${tags[@]}")"
+          printf 'refs<<EOF\n%s\nEOF\n' "$(printf '%s\n' "${refs[@]}")"
+          printf 'repos<<EOF\n%s\nEOF\n' "$(printf '%s\n' "${repo_list[@]}")"
+          printf 'primary-tag=%s\n' "${base_tag}"
+          printf 'primary-ref=%s\n' "${primary_ref}"
+        } >> "$GITHUB_OUTPUT"
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c  # v4.2.0
+      with:
+        driver: docker
+
+    - name: Build image
+      id: build
+      uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a  # v7.3.0
+      with:
+        context: .
+        file: ${{ inputs.dockerfile }}
+        build-args: ${{ inputs.build-args }}
+        push: false
+        load: true        
+        tags: ${{ steps.compute.outputs.refs }}

@@ -1,0 +1,159 @@
+name: Build and publish dev
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - Dockerfile.base
+      - Dockerfile.playwright
+      - '.github/workflows/**'
+  workflow_dispatch:
+    inputs:
+      playwright_version:
+        description: "Playwright version override; defaults to latest"
+        required: false
+        type: string
+
+env:
+  UPSTREAM_REF: "ubuntu"
+
+jobs:
+  detect-changes:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      base: ${{ steps.changes.outputs.base }}
+      playwright: ${{ steps.changes.outputs.playwright }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Detect changes
+        id: changes
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BEFORE_SHA: ${{ github.event.before }}
+          AFTER_SHA: ${{ github.sha }}
+        run: |
+          base=false
+          playwright=false
+
+          if [[ "$EVENT_NAME" == "workflow_dispatch" ]]; then
+            base=true
+            playwright=true
+          elif [[ -z "$BEFORE_SHA" || "$BEFORE_SHA" =~ ^0+$ ]] \
+            || ! git cat-file -e "$BEFORE_SHA^{commit}" 2>/dev/null; then
+            base=true
+            playwright=true
+          else
+            if ! git diff --quiet "$BEFORE_SHA" "$AFTER_SHA" -- \
+              Dockerfile.base .github/workflows/; then
+              base=true
+              playwright=true
+            fi
+            if ! git diff --quiet "$BEFORE_SHA" "$AFTER_SHA" -- \
+              Dockerfile.playwright .github/workflows/; then
+              playwright=true
+            fi
+          fi
+
+          echo "base=$base" >> "$GITHUB_OUTPUT"
+          echo "playwright=$playwright" >> "$GITHUB_OUTPUT"
+
+  resolve-playwright-version:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.playwright == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+
+    steps:
+      - name: Resolve Playwright version
+        id: version
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          REQUESTED_VERSION: ${{ inputs.playwright_version }}
+        run: |
+          version="${REQUESTED_VERSION#v}"
+
+          if [[ -z "$version" ]]; then
+            release="$(
+              curl --fail --silent --show-error --location \
+                --header "Accept: application/vnd.github+json" \
+                --header "Authorization: Bearer $GITHUB_TOKEN" \
+                --header "X-GitHub-Api-Version: 2022-11-28" \
+                https://api.github.com/repos/microsoft/playwright/releases/latest
+            )"
+            version="$(jq -er '.tag_name | ltrimstr("v")' <<< "$release")"
+          fi
+
+          if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Invalid Playwright GA version: $version" >&2
+            exit 1
+          fi
+
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "Using Playwright $version" >> "$GITHUB_STEP_SUMMARY"
+
+  build-and-publish-dev:
+    needs:
+      - detect-changes
+      - resolve-playwright-version
+    if: needs.detect-changes.outputs.playwright == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+
+      - name: Build base
+        if: needs.detect-changes.outputs.base == 'true'
+        id: build-base
+        uses: ./.github/actions/build
+        with:
+          dockerfile: Dockerfile.base
+          label: 'dev'
+          repos: |
+            ghcr.io/treyturner/codercom-base
+            forgejo.treyturner.info/treyturner/codercom-base
+          upstream-ref: ${{ env.UPSTREAM_REF }}
+
+      - name: Publish base
+        if: needs.detect-changes.outputs.base == 'true'
+        uses: ./.github/actions/publish
+        with:
+          forgejo-registry-token: ${{ secrets.FORGEJO_REGISTRY_TOKEN }}
+          github-token: ${{ github.token }}
+          refs: ${{ steps.build-base.outputs.refs }}
+
+      - name: Build Playwright
+        id: build-playwright
+        uses: ./.github/actions/build
+        with:
+          dockerfile: Dockerfile.playwright
+          build-args: |
+            PLAYWRIGHT_VERSION=${{ needs.resolve-playwright-version.outputs.version }}
+            BASE_TAG=${{ needs.detect-changes.outputs.base == 'true' && 'ubuntu-dev' || 'ubuntu' }}
+          label: ${{ format('{0}-dev', needs.resolve-playwright-version.outputs.version) }}
+          repos: |
+            ghcr.io/treyturner/codercom-playwright
+            forgejo.treyturner.info/treyturner/codercom-playwright
+          upstream-ref: ${{ env.UPSTREAM_REF }}
+
+      - name: Publish Playwright
+        uses: ./.github/actions/publish
+        with:
+          forgejo-registry-token: ${{ secrets.FORGEJO_REGISTRY_TOKEN }}
+          github-token: ${{ github.token }}
+          refs: ${{ steps.build-playwright.outputs.refs }}
