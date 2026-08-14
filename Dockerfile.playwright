@@ -25,7 +25,8 @@ RUN --mount=type=cache,target=/root/.local/share/mise,id=pw-mise-data,sharing=lo
       echo "PLAYWRIGHT_VERSION must be provided as a GA version such as 1.62.1" >&2; \
       exit 1; \
     fi; \
-    mise x node@22 -- npx --yes "playwright@${PLAYWRIGHT_VERSION}" \
+    mise x "node@${CODER_NODE_VERSION}" -- \
+      npx --yes "playwright@${PLAYWRIGHT_VERSION}" \
       install --with-deps chromium \
     && chown -R coder:coder "$PLAYWRIGHT_BROWSERS_PATH" \
     && find "$PLAYWRIGHT_BROWSERS_PATH" -type f -name chrome -print -quit \
