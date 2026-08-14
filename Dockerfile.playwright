@@ -1,7 +1,8 @@
-ARG BASE_REGISTRY=ghcr.io \
-    BASE_OWNER=treyturner \
-    BASE_REPO=codercom-base \
-    BASE_TAG=ubuntu
+# syntax=docker/dockerfile:1.7
+ARG BASE_REGISTRY=ghcr.io
+ARG BASE_OWNER=treyturner
+ARG BASE_REPO=codercom-base
+ARG BASE_TAG=ubuntu
 ARG BASE_REF=${BASE_REGISTRY}/${BASE_OWNER}/${BASE_REPO}:${BASE_TAG}
 
 FROM ${BASE_REF}
