@@ -6,6 +6,7 @@ on:
     paths:
       - Dockerfile.base
       - Dockerfile.playwright
+      - Dockerfile.webdev
       - '.github/actions/**'
       - '.github/workflows/**'
 
@@ -20,6 +21,7 @@ jobs:
     outputs:
       base: ${{ steps.changes.outputs.base }}
       playwright: ${{ steps.changes.outputs.playwright }}
+      webdev: ${{ steps.changes.outputs.webdev }}
 
     steps:
       - name: Checkout code
@@ -36,29 +38,39 @@ jobs:
         run: |
           base=false
           playwright=false
+          webdev=false
 
           if ! git cat-file -e "$BASE_SHA^{commit}" 2>/dev/null \
             || ! git cat-file -e "$HEAD_SHA^{commit}" 2>/dev/null; then
             base=true
             playwright=true
+            webdev=true
           else
             if ! git diff --quiet "$BASE_SHA" "$HEAD_SHA" -- \
               Dockerfile.base .github/actions/ .github/workflows/; then
               base=true
               playwright=true
+              webdev=true
             fi
             if ! git diff --quiet "$BASE_SHA" "$HEAD_SHA" -- \
               Dockerfile.playwright .github/actions/ .github/workflows/; then
               playwright=true
+              webdev=true
+            fi
+            if ! git diff --quiet "$BASE_SHA" "$HEAD_SHA" -- \
+              Dockerfile.webdev .github/actions/ .github/workflows/; then
+              playwright=true
+              webdev=true
             fi
           fi
 
           echo "base=$base" >> "$GITHUB_OUTPUT"
           echo "playwright=$playwright" >> "$GITHUB_OUTPUT"
+          echo "webdev=$webdev" >> "$GITHUB_OUTPUT"
 
   resolve-playwright-version:
     needs: detect-changes
-    if: needs.detect-changes.outputs.playwright == 'true'
+    if: needs.detect-changes.outputs.playwright == 'true' || needs.detect-changes.outputs.webdev == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -93,7 +105,7 @@ jobs:
     needs:
       - detect-changes
       - resolve-playwright-version
-    if: needs.detect-changes.outputs.playwright == 'true'
+    if: needs.detect-changes.outputs.playwright == 'true' || needs.detect-changes.outputs.webdev == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -104,19 +116,36 @@ jobs:
 
       - name: Build proposed base
         if: needs.detect-changes.outputs.base == 'true'
+        id: build-base
         uses: ./.github/actions/build
         with:
           dockerfile: Dockerfile.base
           label: ${{ format('pr{0}', github.event.pull_request.number) }}
           repos: ghcr.io/treyturner/codercom-base
+          setup-buildx: 'false'
           upstream-ref: ${{ env.UPSTREAM_REF }}
 
       - name: Build Playwright
+        if: needs.detect-changes.outputs.playwright == 'true'
+        id: build-playwright
         uses: ./.github/actions/build
         with:
           dockerfile: Dockerfile.playwright
           build-args: |
             PLAYWRIGHT_VERSION=${{ needs.resolve-playwright-version.outputs.version }}
-            BASE_TAG=${{ needs.detect-changes.outputs.base == 'true' && format('ubuntu-pr{0}', github.event.pull_request.number) || 'ubuntu' }}
+            BASE_REF=${{ needs.detect-changes.outputs.base == 'true' && steps.build-base.outputs.primary-ref || 'ghcr.io/treyturner/codercom-base:ubuntu' }}
           label: ${{ format('{0}-pr{1}', needs.resolve-playwright-version.outputs.version, github.event.pull_request.number) }}
+          setup-buildx: 'false'
+          upstream-ref: ${{ env.UPSTREAM_REF }}
+
+      - name: Build webdev
+        if: needs.detect-changes.outputs.webdev == 'true'
+        uses: ./.github/actions/build
+        with:
+          dockerfile: Dockerfile.webdev
+          build-args: |
+            PLAYWRIGHT_VERSION=${{ needs.resolve-playwright-version.outputs.version }}
+            BASE_REF=${{ steps.build-playwright.outputs.primary-ref }}
+          label: ${{ format('{0}-pr{1}', needs.resolve-playwright-version.outputs.version, github.event.pull_request.number) }}
+          setup-buildx: 'false'
           upstream-ref: ${{ env.UPSTREAM_REF }}

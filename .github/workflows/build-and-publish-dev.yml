@@ -6,6 +6,7 @@ on:
     paths:
       - Dockerfile.base
       - Dockerfile.playwright
+      - Dockerfile.webdev
       - '.github/actions/**'
       - '.github/workflows/**'
   workflow_dispatch:
@@ -30,6 +31,7 @@ jobs:
     outputs:
       base: ${{ steps.changes.outputs.base }}
       playwright: ${{ steps.changes.outputs.playwright }}
+      webdev: ${{ steps.changes.outputs.webdev }}
 
     steps:
       - name: Checkout code
@@ -47,32 +49,43 @@ jobs:
         run: |
           base=false
           playwright=false
+          webdev=false
 
           if [[ "$EVENT_NAME" == "workflow_dispatch" ]]; then
             base=true
             playwright=true
+            webdev=true
           elif [[ -z "$BEFORE_SHA" || "$BEFORE_SHA" =~ ^0+$ ]] \
             || ! git cat-file -e "$BEFORE_SHA^{commit}" 2>/dev/null; then
             base=true
             playwright=true
+            webdev=true
           else
             if ! git diff --quiet "$BEFORE_SHA" "$AFTER_SHA" -- \
               Dockerfile.base .github/actions/ .github/workflows/; then
               base=true
               playwright=true
+              webdev=true
             fi
             if ! git diff --quiet "$BEFORE_SHA" "$AFTER_SHA" -- \
               Dockerfile.playwright .github/actions/ .github/workflows/; then
               playwright=true
+              webdev=true
+            fi
+            if ! git diff --quiet "$BEFORE_SHA" "$AFTER_SHA" -- \
+              Dockerfile.webdev .github/actions/ .github/workflows/; then
+              playwright=true
+              webdev=true
             fi
           fi
 
           echo "base=$base" >> "$GITHUB_OUTPUT"
           echo "playwright=$playwright" >> "$GITHUB_OUTPUT"
+          echo "webdev=$webdev" >> "$GITHUB_OUTPUT"
 
   resolve-playwright-version:
     needs: detect-changes
-    if: needs.detect-changes.outputs.playwright == 'true'
+    if: needs.detect-changes.outputs.playwright == 'true' || needs.detect-changes.outputs.webdev == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -112,7 +125,7 @@ jobs:
     needs:
       - detect-changes
       - resolve-playwright-version
-    if: needs.detect-changes.outputs.playwright == 'true'
+    if: needs.detect-changes.outputs.playwright == 'true' || needs.detect-changes.outputs.webdev == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -143,6 +156,7 @@ jobs:
           refs: ${{ steps.build-base.outputs.refs }}
 
       - name: Build Playwright
+        if: needs.detect-changes.outputs.playwright == 'true'
         id: build-playwright
         uses: ./.github/actions/build
         with:
@@ -157,8 +171,32 @@ jobs:
           upstream-ref: ${{ env.UPSTREAM_REF }}
 
       - name: Publish Playwright
+        if: needs.detect-changes.outputs.playwright == 'true'
         uses: ./.github/actions/publish
         with:
           forgejo-registry-token: ${{ secrets.FORGEJO_REGISTRY_TOKEN }}
           github-token: ${{ github.token }}
           refs: ${{ steps.build-playwright.outputs.refs }}
+
+      - name: Build webdev
+        if: needs.detect-changes.outputs.webdev == 'true'
+        id: build-webdev
+        uses: ./.github/actions/build
+        with:
+          dockerfile: Dockerfile.webdev
+          build-args: |
+            PLAYWRIGHT_VERSION=${{ needs.resolve-playwright-version.outputs.version }}
+            BASE_TAG=${{ needs.detect-changes.outputs.playwright == 'true' && format('ubuntu-{0}-dev', needs.resolve-playwright-version.outputs.version) || format('ubuntu-{0}', needs.resolve-playwright-version.outputs.version) }}
+          label: ${{ format('{0}-dev', needs.resolve-playwright-version.outputs.version) }}
+          repos: |
+            ghcr.io/treyturner/codercom-webdev
+            forgejo.treyturner.info/treyturner/codercom-webdev
+          upstream-ref: ${{ env.UPSTREAM_REF }}
+
+      - name: Publish webdev
+        if: needs.detect-changes.outputs.webdev == 'true'
+        uses: ./.github/actions/publish
+        with:
+          forgejo-registry-token: ${{ secrets.FORGEJO_REGISTRY_TOKEN }}
+          github-token: ${{ github.token }}
+          refs: ${{ steps.build-webdev.outputs.refs }}
