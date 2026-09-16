@@ -11,6 +11,9 @@ FROM ghcr.io/astral-sh/uv:${UV_VERSION} AS uv
 FROM ${BASE_REF}
 
 ARG TARGETARCH
+ARG HOPPSCOTCH_MCP_VERSION=1.0.1
+
+LABEL io.github.treyturner.hoppscotch-mcp.version="${HOPPSCOTCH_MCP_VERSION}"
 
 COPY --from=uv /uv /uvx /usr/local/bin/
 
@@ -59,7 +62,8 @@ RUN --mount=type=cache,target=/var/cache/apt,id=base-apt-cache,sharing=locked \
     && apt-get remove -y --auto-remove extrepo \
     && apt-get update \
     && apt-get install -y --no-install-recommends mise \
-    && ln -s /usr/bin/fdfind /usr/local/bin/fd
+    && ln -s /usr/bin/fdfind /usr/local/bin/fd \
+    && install -d -o coder -g coder /opt/hoppscotch-mcp
 
 # switch to runtime user
 USER coder
@@ -74,3 +78,16 @@ RUN mise use -g --pin "node@${CODER_NODE_VERSION}" \
     && uv --version \
     && uvx --version \
     && yq --version
+
+# Keep MCP dependencies outside the persistent Coder home volume.
+RUN npm install --prefix /opt/hoppscotch-mcp \
+      --omit=dev --ignore-scripts --no-audit --no-fund --save-exact \
+      "@hoppscotch/mcp-server@${HOPPSCOTCH_MCP_VERSION}"
+
+USER root
+
+RUN chown -R root:root /opt/hoppscotch-mcp \
+    && ln -s /opt/hoppscotch-mcp/node_modules/.bin/hoppscotch-mcp \
+      /usr/local/bin/hoppscotch-mcp
+
+USER coder
