@@ -14,6 +14,10 @@ inputs:
   repos:
     description: "Newline-separated list of <registry>/<repository> used to build refs"
     required: false
+  setup-buildx:
+    description: "Create an isolated docker-container builder"
+    required: false
+    default: 'true'
   upstream-ref:
     description: "Upstream ref to build"
     required: true
@@ -91,6 +95,7 @@ runs:
         } >> "$GITHUB_OUTPUT"
 
     - name: Set up Docker Buildx
+      if: inputs.setup-buildx == 'true'
       uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c  # v4.2.0
       with:
         driver: docker-container
