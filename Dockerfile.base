@@ -93,8 +93,14 @@ RUN mise use -g --pin "node@${CODER_NODE_VERSION}" \
 # COPY owns these files as root without duplicating them in a chown layer.
 COPY --from=hoppscotch-mcp /opt/hoppscotch-mcp/ /opt/hoppscotch-mcp/
 COPY --from=hoppscotch-mcp /usr/local/bin/node /opt/hoppscotch-mcp/bin/node
+COPY hoppscotch/ /opt/hoppscotch-mcp/helper/
 
 COPY --chmod=755 <<'EOF' /usr/local/bin/hoppscotch-mcp
 #!/bin/sh
-exec /opt/hoppscotch-mcp/bin/node /opt/hoppscotch-mcp/node_modules/@hoppscotch/mcp-server/dist/index.js "$@"
+exec /opt/hoppscotch-mcp/bin/node /opt/hoppscotch-mcp/helper/launch.mjs "$@"
+EOF
+
+COPY --chmod=755 <<'EOF' /usr/local/bin/hoppscotch-mcp-auth
+#!/bin/sh
+exec /usr/bin/python3 -I /opt/hoppscotch-mcp/helper/credentials.py "$@"
 EOF
