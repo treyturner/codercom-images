@@ -45,6 +45,7 @@ class FakeBackend:
         self.cookies = []
         self.response_status = 200
         self.response_subject = "user-one"
+        self.access_ttl = 3600
         self.omit_cookie = False
         self.delay = 0
         self.expected_refresh = None
@@ -68,7 +69,7 @@ class FakeBackend:
                 if backend.response_status == 302:
                     self.send_header("Location", backend.server + "/credential-leak")
                 elif backend.response_status == 200:
-                    backend.new_session = session(backend.server, backend.response_subject, ttl=3600 + backend.refreshes)
+                    backend.new_session = session(backend.server, backend.response_subject, ttl=backend.access_ttl)
                     backend.new_session["refreshToken"] = jwt(backend.server, backend.response_subject, ttl=86400, rotation=backend.refreshes)
                     # Include an Expires comma to exercise real Set-Cookie parsing.
                     self.send_header("Set-Cookie", "access_token=" + backend.new_session["accessToken"] + "; HttpOnly; Secure; Expires=Wed, 01 Jan 2031 00:00:00 GMT")
@@ -140,7 +141,7 @@ class CredentialTests(unittest.TestCase):
         data = session(self.backend.server, **kwargs)
         self.backend.expected_refresh = data["refreshToken"]
         self.store.import_session(data)
-        return data
+        return self.store.read()
 
     def cli(self, command, input=None):
         return subprocess.run([sys.executable, "-I", str(HELPER_DIR / "credentials.py"), command],
@@ -167,7 +168,8 @@ class CredentialTests(unittest.TestCase):
         self.seed(ttl=-1)
         result = self.store.get()
         self.assertEqual(result["accessToken"], self.backend.new_session["accessToken"])
-        self.assertEqual(self.store.read(), self.backend.new_session)
+        saved = self.store.read()
+        self.assertEqual({key: saved[key] for key in self.backend.new_session}, self.backend.new_session)
         self.assertEqual(self.backend.refreshes, 1)
         self.assertNotIn("Authorization", self.backend.cookies[0])
         self.assertFalse(list(self.directory.glob(".credentials-*")))
@@ -175,6 +177,7 @@ class CredentialTests(unittest.TestCase):
     def test_concurrent_processes_share_one_refresh(self):
         self.seed(ttl=-1)
         self.backend.delay = 0.2
+        self.backend.access_ttl = 30
         processes = [subprocess.Popen(
             [sys.executable, "-I", str(HELPER_DIR / "credentials.py"), "token"],
             env=self.env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
@@ -300,8 +303,48 @@ class CredentialTests(unittest.TestCase):
 
     def test_untrusted_tls_is_rejected(self):
         self.seed(ttl=-1)
-        with mock.patch.dict(os.environ, {"SSL_CERT_FILE": "/does/not/exist"}):
+        with mock.patch.dict(os.environ, {"SSL_CERT_FILE": "/does/not/exist", "NODE_EXTRA_CA_CERTS": ""}):
             with self.assertRaisesRegex(credentials.CredentialError, "HTTPS refresh endpoint"):
+                self.store.get()
+
+    def test_short_lived_tokens_preserve_rotated_pair_and_are_reused(self):
+        self.seed(ttl=-1)
+        self.backend.access_ttl = 30
+        first = self.store.get()
+        self.assertEqual(self.store.get(), first)
+        self.assertEqual(self.backend.refreshes, 1)
+        saved = self.store.read()
+        self.assertEqual(saved["refreshToken"], self.backend.new_session["refreshToken"])
+        self.assertGreater(saved["refreshAfter"], time.time())
+        self.assertLess(saved["refreshAfter"], credentials.claims(saved["accessToken"])["exp"])
+        saved["accessToken"] = jwt(self.backend.server, ttl=-1)
+        self.store.import_session(saved)
+        self.store.get()
+        self.assertEqual(self.backend.refreshes, 2)
+
+    def test_expired_access_response_still_saves_usable_rotated_refresh(self):
+        self.seed(ttl=-1)
+        self.backend.access_ttl = -1
+        with self.assertRaisesRegex(credentials.CredentialError, "Rotated credentials were saved"):
+            self.store.get()
+        self.assertEqual(self.store.read()["refreshToken"], self.backend.new_session["refreshToken"])
+        self.backend.access_ttl = 3600
+        self.store.get()
+        self.assertEqual(self.backend.refreshes, 2)
+
+    def test_node_extra_ca_alone_supports_actual_mcp_and_refresh(self):
+        self.seed(ttl=-1)
+        env = {**self.env}
+        env.pop("SSL_CERT_FILE", None)
+        with self.mcp(env=env) as call:
+            result = call("tools/call", {"name": "list_user_collections", "arguments": {"type": "REST"}})
+            self.assertFalse(result["result"].get("isError"), result)
+        self.assertEqual(self.backend.refreshes, 1)
+
+    def test_invalid_extra_ca_produces_redacted_configuration_error(self):
+        self.seed(ttl=-1)
+        with mock.patch.dict(os.environ, {"NODE_EXTRA_CA_CERTS": "/does/not/exist"}):
+            with self.assertRaisesRegex(credentials.CredentialError, "HTTPS trust configuration"):
                 self.store.get()
 
     @contextlib.contextmanager

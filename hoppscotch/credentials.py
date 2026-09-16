@@ -110,9 +110,14 @@ def refresh_pair(api_url, refresh_token):
         headers={"Cookie": "refresh_token=" + refresh_token, "Accept": "application/json"},
         method="GET",
     )
-    opener = urllib.request.build_opener(
-        NoRedirect(), urllib.request.HTTPSHandler(context=ssl.create_default_context())
-    )
+    try:
+        tls_context = ssl.create_default_context()
+        extra_ca = os.environ.get("NODE_EXTRA_CA_CERTS")
+        if extra_ca:
+            tls_context.load_verify_locations(cafile=extra_ca)
+    except OSError:
+        raise CredentialError("Cannot load HTTPS trust configuration. Check NODE_EXTRA_CA_CERTS and SSL_CERT_FILE.") from None
+    opener = urllib.request.build_opener(NoRedirect(), urllib.request.HTTPSHandler(context=tls_context))
     try:
         with opener.open(request, timeout=10) as response:
             if response.status != 200:
@@ -209,10 +214,19 @@ class Credentials:
         session = {
             "apiUrl": self.api_url, "apiType": "selfhost",
             "accessToken": data["accessToken"], "refreshToken": data["refreshToken"],
+            "refreshAfter": self.renewal_time(access),
         }
         with self.locked():
             self.write(session)
         return access, refresh
+
+    @staticmethod
+    def renewal_time(access):
+        # Reserve 10% of the observed remaining lifetime, capped at two minutes.
+        # Persist this deadline so a short-lived token is reused instead of
+        # rotating again on every request as the remaining lifetime shrinks.
+        remaining = max(0, access["exp"] - time.time())
+        return access["exp"] - min(REFRESH_WINDOW, remaining * 0.1)
 
     def get(self, expected_subject=None):
         with self.locked():
@@ -220,7 +234,11 @@ class Credentials:
             access, refresh = validate_session(session, self.server)
             if expected_subject is not None and access["sub"] != expected_subject:
                 raise CredentialError("Session account changed. Restart the MCP client to use the new account.")
-            if access["exp"] <= time.time() + REFRESH_WINDOW:
+            refresh_after = session.get("refreshAfter", access["exp"] - REFRESH_WINDOW)
+            if (type(refresh_after) not in (int, float) or not math.isfinite(refresh_after)
+                    or refresh_after > access["exp"]):
+                raise CredentialError("Invalid renewal deadline in the credential store; import the session again.")
+            if refresh_after <= time.time():
                 if refresh["exp"] <= time.time():
                     raise CredentialError("Refresh session expired. Sign in again and import the new session.")
                 new_access, new_refresh = refresh_pair(self.api_url, session["refreshToken"])
@@ -228,10 +246,12 @@ class Credentials:
                 new_access_claims, new_refresh_claims = validate_session(updated, self.server)
                 if new_access_claims["sub"] != access["sub"]:
                     raise CredentialError("Refresh returned a different account; credentials were not replaced.")
-                if (new_access_claims["exp"] <= time.time() + REFRESH_WINDOW
-                        or new_refresh_claims["exp"] <= time.time()):
-                    raise CredentialError("Refresh returned tokens with insufficient remaining validity.")
+                if new_refresh_claims["exp"] <= time.time():
+                    raise CredentialError("Refresh returned an expired refresh session. Sign in again.")
+                updated["refreshAfter"] = self.renewal_time(new_access_claims)
                 self.write(updated)
+                if new_access_claims["exp"] <= time.time():
+                    raise CredentialError("Refresh returned an expired access token. Rotated credentials were saved; retry renewal.")
                 session, access = updated, new_access_claims
             return {"accessToken": session["accessToken"], "subject": access["sub"]}
 

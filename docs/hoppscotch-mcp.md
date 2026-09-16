@@ -154,16 +154,24 @@ Version 1.0.1 uses an incompatible unversioned, bearer-token refresh request for
 Community Edition. Helper mode runs the unmodified MCP package with an internal
 placeholder and supplies the real access token only to its configured GraphQL
 endpoint. Before each API request, the launcher asks the helper for a token.
-Within two minutes of access-token expiry, the helper calls
+The helper schedules renewal before access-token expiry, reserving 10% of the
+observed remaining lifetime up to a maximum of two minutes. This also supports
+short-lived access tokens without refreshing on every request. When due, it calls
 `/backend/v1/auth/refresh` with the `refresh_token` cookie, accepts the rotated
 `access_token` and `refresh_token` cookies, and atomically replaces the store.
-Requests use verified HTTPS and refuse redirects. The helper never logs token
+Requests use verified HTTPS and refuse redirects. A private CA configured through
+`NODE_EXTRA_CA_CERTS` is also loaded by the Python refresh client; a duplicate
+`SSL_CERT_FILE` setting is not required. Forward `NODE_EXTRA_CA_CERTS` into the
+MCP client's environment when needed. The helper never logs token
 values or backend response bodies, and it snapshots its environment before the
 upstream server loads repository `.env` files.
 
 A process lock serializes refresh and import across local clients. One client
-refreshes; the others reread the new token pair. A failed refresh leaves the
-previous file intact and reports an error; no authenticated GraphQL request is
+refreshes; the others reread the new token pair. Network failures, rejected
+requests, and malformed or wrong-account responses leave the previous file
+intact and report an error. A well-formed pair with a usable rotated refresh token
+is saved even if its access token is already expired, allowing a later renewal
+attempt to recover. No authenticated GraphQL request is
 sent by the helper when renewal fails. The helper does not replay API requests.
 Cloud and ordinary explicit-token configurations retain upstream behavior when
 `HOPPSCOTCH_CREDENTIAL_HELPER` is unset or false.
