@@ -7,6 +7,8 @@ on:
       - Dockerfile.base
       - Dockerfile.playwright
       - Dockerfile.webdev
+      - 'hoppscotch/**'
+      - 'tests/hoppscotch/**'
       - '.github/actions/**'
       - '.github/workflows/**'
   workflow_dispatch:
@@ -62,7 +64,7 @@ jobs:
             webdev=true
           else
             if ! git diff --quiet "$BEFORE_SHA" "$AFTER_SHA" -- \
-              Dockerfile.base .github/actions/ .github/workflows/; then
+              Dockerfile.base hoppscotch/ tests/hoppscotch/ .github/actions/ .github/workflows/; then
               base=true
               playwright=true
               webdev=true
@@ -146,6 +148,12 @@ jobs:
             ghcr.io/treyturner/codercom-base
             forgejo.treyturner.info/treyturner/codercom-base
           upstream-ref: ${{ env.UPSTREAM_REF }}
+
+      - name: Test Hoppscotch credentials
+        if: needs.detect-changes.outputs.base == 'true'
+        uses: ./.github/actions/test-hoppscotch
+        with:
+          image: ${{ steps.build-base.outputs.primary-ref }}
 
       - name: Publish base
         if: needs.detect-changes.outputs.base == 'true'

@@ -1,0 +1,26 @@
+name: Test Hoppscotch credentials
+description: Exercise credential rotation and the real MCP server in the built image
+
+inputs:
+  image:
+    description: Local image reference to test
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Test credentials and MCP integration
+      shell: bash -euo pipefail {0}
+      env:
+        TEST_IMAGE: ${{ inputs.image }}
+      run: |
+        tar -C tests -cf - hoppscotch | docker run --rm --network none -i \
+          -e HOPPSCOTCH_TEST_HELPER_DIR=/opt/hoppscotch-mcp/helper \
+          "$TEST_IMAGE" /bin/bash -euc '
+            test "$(id -un)" = coder
+            test ! -w /opt/hoppscotch-mcp/helper/credentials.py
+            test ! -w /opt/hoppscotch-mcp/helper/launch.mjs
+            test_dir="$(mktemp -d)"
+            tar -xf - -C "$test_dir"
+            exec /usr/bin/python3 -I "$test_dir/hoppscotch/test_credentials.py"
+          '
