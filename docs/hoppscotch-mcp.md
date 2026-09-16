@@ -3,7 +3,10 @@
 The base image installs `@hoppscotch/mcp-server` at the version pinned by
 `HOPPSCOTCH_MCP_VERSION` in `Dockerfile.base`. The executable is
 `/usr/local/bin/hoppscotch-mcp`, its dependencies live under `/opt/hoppscotch-mcp`,
-and it uses the image's Node.js runtime. Playwright and webdev images inherit it.
+and its pinned Node.js interpreter is `/opt/hoppscotch-mcp/bin/node`. The launcher
+uses that interpreter directly, so an existing home volume or a project's Node
+version selection cannot hide or replace it. Playwright and webdev images
+inherit it.
 It runs on demand as a stdio subprocess of each MCP client; no service or exposed
 MCP port is needed.
 
@@ -50,8 +53,8 @@ resource "coder_script" "hoppscotch_mcp" {
 
 `configure-hoppscotch-mcp.sh` is a template-side script to implement using the
 template's existing configuration tooling. It should check that
-`/usr/local/bin/hoppscotch-mcp` and Node.js 22 or newer are available, then perform
-the merges below. Coordinate it with the existing client setup: separate
+`/usr/local/bin/hoppscotch-mcp` and `/opt/hoppscotch-mcp/bin/node` are executable,
+then perform the merges below. Coordinate it with the existing client setup: separate
 startup scripts can run concurrently, and `start_blocks_login` alone does not
 order them or defer a client that another script starts. Incorporating the merge
 into the existing setup script before it starts Codex is also suitable.
@@ -131,8 +134,9 @@ Hoppscotch instance.
 
 ## Rollout verification
 
-- Check `command -v hoppscotch-mcp` and `node --version` inside the updated
-  workspace, including with its existing home volume.
+- Check `command -v hoppscotch-mcp` and
+  `/opt/hoppscotch-mcp/bin/node --version` inside the updated workspace,
+  including with its existing home volume.
 - Check the registration using `codex mcp get hoppscotch` and, if installed,
   `claude mcp get hoppscotch`.
 - With a valid JWT supplied, use a read-only tool such as `list_user_collections`
