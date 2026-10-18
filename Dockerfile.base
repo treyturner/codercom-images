@@ -73,7 +73,13 @@ RUN --mount=type=cache,target=/var/cache/apt,id=base-apt-cache,sharing=locked \
     && apt-get remove -y --auto-remove extrepo \
     && apt-get update \
     && apt-get install -y --no-install-recommends mise \
-    && ln -s /usr/bin/fdfind /usr/local/bin/fd
+    && ln -s /usr/bin/fdfind /usr/local/bin/fd \
+    && curl -fsSL https://github.com/hogklint/tailfin/releases/download/v0.3.0/tailfin_0.3.0_linux_amd64.tar.gz -o /tmp/tailfin.tar.gz \
+    && echo 'ed3e2ae7cef60e4ff0d34912c94167aeea242b63e6bc3ef4c68714e9ddae6e26  /tmp/tailfin.tar.gz' \
+      | sha256sum -c - \
+    && tar -xzf /tmp/tailfin.tar.gz -O tailfin \
+      | install -o root -g root -m 755 /dev/stdin /usr/local/bin/tailfin \
+    && rm /tmp/tailfin.tar.gz
 
 # switch to runtime user
 USER coder
