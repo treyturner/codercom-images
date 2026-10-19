@@ -45,7 +45,6 @@ RUN --mount=type=cache,target=/var/cache/apt,id=base-apt-cache,sharing=locked \
       file \
       fzf \
       git-lfs \
-      gh \
       iputils-ping \
       lsof \
       mtr-tiny \
@@ -64,6 +63,15 @@ RUN --mount=type=cache,target=/var/cache/apt,id=base-apt-cache,sharing=locked \
       tzdata \
       zip \
       zstd \
+    && sudo mkdir -p -m 755 /etc/apt/keyrings \
+    && out=$(mktemp) && wget -nv -O$out https://cli.github.com/packages/githubcli-archive-keyring.gpg \
+    && cat $out | sudo tee /etc/apt/keyrings/githubcli-archive-keyring.gpg > /dev/null \
+    && sudo chmod go+r /etc/apt/keyrings/githubcli-archive-keyring.gpg \
+    && sudo mkdir -p -m 755 /etc/apt/sources.list.d \
+    && echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" \
+      | sudo tee /etc/apt/sources.list.d/github-cli.list > /dev/null \
+    && sudo apt update \
+    && sudo apt install gh -y --no-install-recommends \
     && wget "https://github.com/mikefarah/yq/releases/download/v4.53.3/yq_linux_amd64" \
       -O /usr/local/bin/yq \
     && echo "fa52a4e758c63d38299163fbdd1edfb4c4963247918bf9c1c5d31d84789eded4  /usr/local/bin/yq" \
