@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+exec /usr/bin/xpra start :100 \
+  --daemon=no \
+  --systemd-run=no \
+  --start-via-proxy=no \
+  --xvfb=Xvfb \
+  --bind-tcp=127.0.0.1:14500 \
+  --html=on \
+  --exit-with-client=no \
+  --exit-with-children=yes \
+  --terminate-children=yes \
+  --server-idle-timeout=0 \
+  --mdns=no \
+  --start-child="chatgpt --ozone-platform=x11 --disable-gpu"
