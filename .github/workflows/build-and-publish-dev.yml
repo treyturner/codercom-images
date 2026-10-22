@@ -27,7 +27,7 @@ env:
 
 jobs:
   detect-changes:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     permissions:
       contents: read
     outputs:
@@ -88,7 +88,7 @@ jobs:
   resolve-playwright-version:
     needs: detect-changes
     if: needs.detect-changes.outputs.playwright == 'true' || needs.detect-changes.outputs.webdev == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     permissions:
       contents: read
     outputs:
@@ -128,7 +128,7 @@ jobs:
       - detect-changes
       - resolve-playwright-version
     if: needs.detect-changes.outputs.playwright == 'true' || needs.detect-changes.outputs.webdev == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     permissions:
       contents: read
       packages: write
