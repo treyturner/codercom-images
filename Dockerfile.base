@@ -39,6 +39,7 @@ RUN --mount=type=cache,target=/var/cache/apt,id=base-apt-cache,sharing=locked \
     && apt-get install -y --no-install-recommends \
       bubblewrap \
       cmake \
+      dbus-x11 \
       dnsutils \
       extrepo \
       fd-find \
@@ -54,8 +55,10 @@ RUN --mount=type=cache,target=/var/cache/apt,id=base-apt-cache,sharing=locked \
       ninja-build \
       p7zip-full \
       pkg-config \
+      python3-dbus \
       socat \
       strace \
+      supervisor \
       tcpdump \
       tmux \
       traceroute \
@@ -63,31 +66,57 @@ RUN --mount=type=cache,target=/var/cache/apt,id=base-apt-cache,sharing=locked \
       tzdata \
       zip \
       zstd \
-    && sudo mkdir -p -m 755 /etc/apt/keyrings \
+    # github repo + cli
+    && mkdir -p -m 755 /etc/apt/keyrings \
     && out=$(mktemp) && wget -nv -O$out https://cli.github.com/packages/githubcli-archive-keyring.gpg \
-    && cat $out | sudo tee /etc/apt/keyrings/githubcli-archive-keyring.gpg > /dev/null \
-    && sudo chmod go+r /etc/apt/keyrings/githubcli-archive-keyring.gpg \
-    && sudo mkdir -p -m 755 /etc/apt/sources.list.d \
+    && cat $out | tee /etc/apt/keyrings/githubcli-archive-keyring.gpg > /dev/null \
+    && chmod go+r /etc/apt/keyrings/githubcli-archive-keyring.gpg \
+    && mkdir -p -m 755 /etc/apt/sources.list.d \
     && echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" \
-      | sudo tee /etc/apt/sources.list.d/github-cli.list > /dev/null \
-    && sudo apt update \
-    && sudo apt install gh -y --no-install-recommends \
+      | tee /etc/apt/sources.list.d/github-cli.list > /dev/null \
+    && apt update \
+    && apt install -y --no-install-recommends gh \
+    # mikefarah's yq
     && wget "https://github.com/mikefarah/yq/releases/download/v4.53.3/yq_linux_amd64" \
       -O /usr/local/bin/yq \
     && echo "fa52a4e758c63d38299163fbdd1edfb4c4963247918bf9c1c5d31d84789eded4  /usr/local/bin/yq" \
       | sha256sum -c - \
     && chmod +x /usr/local/bin/yq \
+    # mise
     && extrepo enable mise \
     && apt-get remove -y --auto-remove extrepo \
     && apt-get update \
     && apt-get install -y --no-install-recommends mise \
     && ln -s /usr/bin/fdfind /usr/local/bin/fd \
+    # tailfin
     && curl -fsSL https://github.com/hogklint/tailfin/releases/download/v0.3.0/tailfin_0.3.0_linux_amd64.tar.gz -o /tmp/tailfin.tar.gz \
     && echo 'ed3e2ae7cef60e4ff0d34912c94167aeea242b63e6bc3ef4c68714e9ddae6e26  /tmp/tailfin.tar.gz' \
       | sha256sum -c - \
     && tar -xzf /tmp/tailfin.tar.gz -O tailfin \
       | install -o root -g root -m 755 /dev/stdin /usr/local/bin/tailfin \
     && rm /tmp/tailfin.tar.gz
+
+# Xpra and ChatGPT desktop for Ubuntu 26.04 / Resolute, amd64.
+RUN --mount=type=cache,target=/var/cache/apt,id=base-apt-cache,sharing=locked \
+    install -d -m 0755 /usr/share/keyrings /etc/apt/sources.list.d \
+    && curl -fsSL https://xpra.org/xpra.asc \
+         -o /usr/share/keyrings/xpra.asc \
+    && curl -fsSL \
+         https://raw.githubusercontent.com/Xpra-org/xpra/master/packaging/repos/resolute/xpra.sources \
+         -o /etc/apt/sources.list.d/xpra.sources \
+    && chmod 0644 \
+         /usr/share/keyrings/xpra.asc \
+         /etc/apt/sources.list.d/xpra.sources \
+    && curl -fsSL \
+         https://persistent.oaistatic.com/codex-app-prod/linux/deb/latest/chatgpt_amd64.deb \
+         -o /tmp/chatgpt_amd64.deb \
+    && apt-get update \
+    && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+         xpra \
+         xpra-html5 \
+         xpra-x11 \
+         /tmp/chatgpt_amd64.deb \
+    && rm -f /tmp/chatgpt_amd64.deb
 
 # switch to runtime user
 USER coder
@@ -101,7 +130,15 @@ RUN mise use -g --pin "node@${CODER_NODE_VERSION}" \
     && npx --version \
     && uv --version \
     && uvx --version \
-    && yq --version
+    && yq --version \
+    && gh --version \
+    && tailfin --version
+
+# Copy ChatGPT desktop supervisor script and config
+COPY --chmod=0644 ./chatgpt-desktop.conf \
+    /etc/supervisor/chatgpt-desktop.conf
+COPY --chmod=0755 ./run-chatgpt-xpra \
+    /usr/local/bin/run-chatgpt-xpra
 
 # Keep both MCP dependencies and their interpreter outside the persistent home.
 # COPY owns these files as root without duplicating them in a chown layer.
