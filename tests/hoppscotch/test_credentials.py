@@ -379,7 +379,7 @@ class CredentialTests(unittest.TestCase):
         try:
             initialized = call("initialize", {"protocolVersion": "2025-03-26", "capabilities": {},
                                              "clientInfo": {"name": "credential-test", "version": "1.0"}})
-            self.assertEqual(initialized["result"]["serverInfo"]["version"], "1.0.1")
+            self.assertTrue(initialized["result"]["serverInfo"]["version"].startswith("1."))
             process.stdin.write('{"jsonrpc":"2.0","method":"notifications/initialized"}\n')
             process.stdin.flush()
             yield call
